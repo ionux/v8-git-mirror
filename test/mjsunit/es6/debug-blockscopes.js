@@ -25,7 +25,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --expose-debug-as debug
+// Flags: --expose-debug-as debug --allow-natives-syntax
+// Flags: --debug-eval-readonly-locals
 // The functions used for testing backtraces. They are at the top to make the
 // testing of source line/column easier.
 
@@ -186,6 +187,14 @@ function CheckScopeContent(content, number, exec_state) {
   assertTrue(found, "Scope object " + response.body.object.ref + " not found");
 }
 
+
+function assertEqualsUnlessOptimized(expected, value, f) {
+  try {
+    assertEquals(expected, value);
+  } catch (e) {
+    assertOptimized(f);
+  }
+}
 
 // Simple empty block scope in local scope.
 BeginTest("Local block 1");
@@ -372,13 +381,16 @@ function for_loop_1() {
 
 listener_delegate = function(exec_state) {
   CheckScopeChain([debug.ScopeType.Block,
+                   debug.ScopeType.Block,
                    debug.ScopeType.Local,
                    debug.ScopeType.Script,
                    debug.ScopeType.Global], exec_state);
   CheckScopeContent({x:'y'}, 0, exec_state);
   // The function scope contains a temporary iteration variable, but it is
   // hidden to the debugger.
-  CheckScopeContent({}, 1, exec_state);
+  // TODO(adamk): This variable is only used to provide a TDZ for the enumerable
+  // expression and should not be visible to the debugger.
+  CheckScopeContent({x:undefined}, 1, exec_state);
 };
 for_loop_1();
 EndTest();
@@ -398,6 +410,7 @@ function for_loop_2() {
 listener_delegate = function(exec_state) {
   CheckScopeChain([debug.ScopeType.Block,
                    debug.ScopeType.Block,
+                   debug.ScopeType.Block,
                    debug.ScopeType.Local,
                    debug.ScopeType.Script,
                    debug.ScopeType.Global], exec_state);
@@ -405,7 +418,9 @@ listener_delegate = function(exec_state) {
   CheckScopeContent({x:'y'}, 1, exec_state);
   // The function scope contains a temporary iteration variable, hidden to the
   // debugger.
-  CheckScopeContent({}, 2, exec_state);
+  // TODO(adamk): This variable is only used to provide a TDZ for the enumerable
+  // expression and should not be visible to the debugger.
+  CheckScopeContent({x:undefined}, 2, exec_state);
 };
 for_loop_2();
 EndTest();
@@ -511,15 +526,12 @@ function shadowing_1() {
   {
     let i = 5;
     debugger;
-    assertEquals(27, i);
   }
   assertEquals(0, i);
-  debugger;
-  assertEquals(27, i);
 }
 
 listener_delegate = function (exec_state) {
-  exec_state.frame(0).evaluate("i = 27");
+  assertEqualsUnlessOptimized(5, exec_state.frame(0).evaluate("i").value());
 }
 shadowing_1();
 EndTest();
@@ -532,13 +544,12 @@ function shadowing_2() {
   {
     let j = 5;
     debugger;
-    assertEquals(27, j);
   }
-  assertEquals(0, i);
 }
 
 listener_delegate = function (exec_state) {
-  exec_state.frame(0).evaluate("j = 27");
+  assertEqualsUnlessOptimized(0, exec_state.frame(0).evaluate("i").value());
+  assertEqualsUnlessOptimized(5, exec_state.frame(0).evaluate("j").value());
 }
 shadowing_2();
 EndTest();

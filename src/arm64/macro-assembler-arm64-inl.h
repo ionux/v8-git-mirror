@@ -869,15 +869,6 @@ void MacroAssembler::Isb() {
 }
 
 
-void MacroAssembler::Ldnp(const CPURegister& rt,
-                          const CPURegister& rt2,
-                          const MemOperand& src) {
-  DCHECK(allow_macro_instructions_);
-  DCHECK(!AreAliased(rt, rt2));
-  ldnp(rt, rt2, src);
-}
-
-
 void MacroAssembler::Ldr(const CPURegister& rt, const Immediate& imm) {
   DCHECK(allow_macro_instructions_);
   ldr(rt, imm);
@@ -1131,14 +1122,6 @@ void MacroAssembler::Umull(const Register& rd, const Register& rn,
   DCHECK(allow_macro_instructions_);
   DCHECK(!rd.IsZero());
   umaddl(rd, rn, rm, xzr);
-}
-
-
-void MacroAssembler::Stnp(const CPURegister& rt,
-                          const CPURegister& rt2,
-                          const MemOperand& dst) {
-  DCHECK(allow_macro_instructions_);
-  stnp(rt, rt2, dst);
 }
 
 
@@ -1466,7 +1449,7 @@ void MacroAssembler::IsInstanceJSObjectType(Register map,
   Ldrb(scratch, FieldMemOperand(map, Map::kInstanceTypeOffset));
   // If cmp result is lt, the following ccmp will clear all flags.
   // Z == 0, N == V implies gt condition.
-  Cmp(scratch, FIRST_NONCALLABLE_SPEC_OBJECT_TYPE);
+  Cmp(scratch, FIRST_JS_RECEIVER_TYPE);
   Ccmp(scratch, LAST_NONCALLABLE_SPEC_OBJECT_TYPE, NoFlag, ge);
 
   // If we didn't get a valid label object just fall through and leave the
@@ -1700,6 +1683,7 @@ void MacroAssembler::AnnotateInstrumentation(const char* marker_name) {
   movn(xzr, (marker_name[1] << 8) | marker_name[0]);
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_ARM64_MACRO_ASSEMBLER_ARM64_INL_H_

@@ -34,7 +34,7 @@
 // significantly by Google Inc.
 // Copyright 2012 the V8 project authors. All rights reserved.
 
-#include "src/v8.h"
+#include "src/x87/assembler-x87.h"
 
 #if V8_TARGET_ARCH_X87
 
@@ -42,6 +42,7 @@
 #include "src/base/cpu.h"
 #include "src/disassembler.h"
 #include "src/macro-assembler.h"
+#include "src/v8.h"
 
 namespace v8 {
 namespace internal {
@@ -82,9 +83,9 @@ void Displacement::init(Label* L, Type type) {
 
 
 const int RelocInfo::kApplyMask =
-  RelocInfo::kCodeTargetMask | 1 << RelocInfo::RUNTIME_ENTRY |
-    1 << RelocInfo::JS_RETURN | 1 << RelocInfo::INTERNAL_REFERENCE |
-    1 << RelocInfo::DEBUG_BREAK_SLOT | 1 << RelocInfo::CODE_AGE_SEQUENCE;
+    RelocInfo::kCodeTargetMask | 1 << RelocInfo::RUNTIME_ENTRY |
+    1 << RelocInfo::INTERNAL_REFERENCE | 1 << RelocInfo::CODE_AGE_SEQUENCE |
+    RelocInfo::kDebugBreakSlotMask;
 
 
 bool RelocInfo::IsCodedSpecially() {
@@ -98,37 +99,6 @@ bool RelocInfo::IsCodedSpecially() {
 
 bool RelocInfo::IsInConstantPool() {
   return false;
-}
-
-
-// Patch the code at the current PC with a call to the target address.
-// Additional guard int3 instructions can be added if required.
-void RelocInfo::PatchCodeWithCall(Address target, int guard_bytes) {
-  // Call instruction takes up 5 bytes and int3 takes up one byte.
-  static const int kCallCodeSize = 5;
-  int code_size = kCallCodeSize + guard_bytes;
-
-  // Create a code patcher.
-  CodePatcher patcher(pc_, code_size);
-
-// Add a label for checking the size of the code used for returning.
-#ifdef DEBUG
-  Label check_codesize;
-  patcher.masm()->bind(&check_codesize);
-#endif
-
-  // Patch the code.
-  patcher.masm()->call(target, RelocInfo::NONE32);
-
-  // Check that the size of the code generated is as expected.
-  DCHECK_EQ(kCallCodeSize,
-            patcher.masm()->SizeOfCodeGeneratedSince(&check_codesize));
-
-  // Add the requested number of int3 instructions after the call.
-  DCHECK_GE(guard_bytes, 0);
-  for (int i = 0; i < guard_bytes; i++) {
-    patcher.masm()->int3();
-  }
 }
 
 
@@ -252,6 +222,7 @@ void Assembler::GetCode(CodeDesc* desc) {
   desc->instr_size = pc_offset();
   desc->reloc_size = (buffer_ + buffer_size_) - reloc_info_writer.pos();
   desc->origin = this;
+  desc->constant_pool_size = 0;
 }
 
 
@@ -388,6 +359,14 @@ void Assembler::mov_b(Register dst, const Operand& src) {
 }
 
 
+void Assembler::mov_b(const Operand& dst, const Immediate& src) {
+  EnsureSpace ensure_space(this);
+  EMIT(0xC6);
+  emit_operand(eax, dst);
+  EMIT(static_cast<int8_t>(src.x_));
+}
+
+
 void Assembler::mov_b(const Operand& dst, int8_t imm8) {
   EnsureSpace ensure_space(this);
   EMIT(0xC6);
@@ -427,6 +406,16 @@ void Assembler::mov_w(const Operand& dst, int16_t imm16) {
   emit_operand(eax, dst);
   EMIT(static_cast<int8_t>(imm16 & 0xff));
   EMIT(static_cast<int8_t>(imm16 >> 8));
+}
+
+
+void Assembler::mov_w(const Operand& dst, const Immediate& src) {
+  EnsureSpace ensure_space(this);
+  EMIT(0x66);
+  EMIT(0xC7);
+  emit_operand(eax, dst);
+  EMIT(static_cast<int8_t>(src.x_ & 0xff));
+  EMIT(static_cast<int8_t>(src.x_ >> 8));
 }
 
 
@@ -1159,6 +1148,14 @@ void Assembler::bsr(Register dst, const Operand& src) {
 }
 
 
+void Assembler::bsf(Register dst, const Operand& src) {
+  EnsureSpace ensure_space(this);
+  EMIT(0x0F);
+  EMIT(0xBC);
+  emit_operand(dst, src);
+}
+
+
 void Assembler::hlt() {
   EnsureSpace ensure_space(this);
   EMIT(0xF4);
@@ -1439,12 +1436,12 @@ void Assembler::j(Condition cc, byte* entry, RelocInfo::Mode rmode) {
 }
 
 
-void Assembler::j(Condition cc, Handle<Code> code) {
+void Assembler::j(Condition cc, Handle<Code> code, RelocInfo::Mode rmode) {
   EnsureSpace ensure_space(this);
   // 0000 1111 1000 tttn #32-bit disp
   EMIT(0x0F);
   EMIT(0x80 | cc);
-  emit(code, RelocInfo::CODE_TARGET);
+  emit(code, rmode);
 }
 
 
@@ -1698,6 +1695,20 @@ void Assembler::fsub_i(int i) {
 }
 
 
+void Assembler::fsubr_d(const Operand& adr) {
+  EnsureSpace ensure_space(this);
+  EMIT(0xDC);
+  emit_operand(ebp, adr);
+}
+
+
+void Assembler::fsub_d(const Operand& adr) {
+  EnsureSpace ensure_space(this);
+  EMIT(0xDC);
+  emit_operand(esp, adr);
+}
+
+
 void Assembler::fisub_s(const Operand& adr) {
   EnsureSpace ensure_space(this);
   EMIT(0xDA);
@@ -1717,9 +1728,30 @@ void Assembler::fmul(int i) {
 }
 
 
+void Assembler::fmul_d(const Operand& adr) {
+  EnsureSpace ensure_space(this);
+  EMIT(0xDC);
+  emit_operand(ecx, adr);
+}
+
+
 void Assembler::fdiv(int i) {
   EnsureSpace ensure_space(this);
   emit_farith(0xDC, 0xF8, i);
+}
+
+
+void Assembler::fdiv_d(const Operand& adr) {
+  EnsureSpace ensure_space(this);
+  EMIT(0xDC);
+  emit_operand(esi, adr);
+}
+
+
+void Assembler::fdivr_d(const Operand& adr) {
+  EnsureSpace ensure_space(this);
+  EMIT(0xDC);
+  emit_operand(edi, adr);
 }
 
 
@@ -1913,6 +1945,7 @@ void Assembler::GrowBuffer() {
 
   // Set up new buffer.
   desc.buffer = NewArray<byte>(desc.buffer_size);
+  desc.origin = this;
   desc.instr_size = pc_offset();
   desc.reloc_size = (buffer_ + buffer_size_) - (reloc_info_writer.pos());
 
@@ -2028,6 +2061,12 @@ void Assembler::dd(uint32_t data) {
 }
 
 
+void Assembler::dq(uint64_t data) {
+  EnsureSpace ensure_space(this);
+  emit_q(data);
+}
+
+
 void Assembler::dd(Label* label) {
   EnsureSpace ensure_space(this);
   RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE);
@@ -2042,22 +2081,8 @@ void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
       !serializer_enabled() && !emit_debug_code()) {
       return;
   }
-  RelocInfo rinfo(pc_, rmode, data, NULL);
+  RelocInfo rinfo(isolate(), pc_, rmode, data, NULL);
   reloc_info_writer.Write(&rinfo);
-}
-
-
-Handle<ConstantPoolArray> Assembler::NewConstantPool(Isolate* isolate) {
-  // No out-of-line constant pool support.
-  DCHECK(!FLAG_enable_ool_constant_pool);
-  return isolate->factory()->empty_constant_pool_array();
-}
-
-
-void Assembler::PopulateConstantPool(ConstantPoolArray* constant_pool) {
-  // No out-of-line constant pool support.
-  DCHECK(!FLAG_enable_ool_constant_pool);
-  return;
 }
 
 
@@ -2086,6 +2111,7 @@ void LogGeneratedCodeCoverage(const char* file_line) {
 
 #endif
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_X87

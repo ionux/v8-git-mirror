@@ -8,23 +8,35 @@ vars = {
 
 deps = {
   "v8/build/gyp":
-    Var("git_url") + "/external/gyp.git" + "@" + "0bb67471bca068996e15b56738fa4824dfa19de0",
+    Var("git_url") + "/external/gyp.git" + "@" + "b85ad3e578da830377dbc1843aa4fbc5af17a192",
   "v8/third_party/icu":
-    Var("git_url") + "/chromium/deps/icu.git" + "@" + "ce41627e388fb46ab49671bd16a5db81dcd75a71",
+    Var("git_url") + "/chromium/deps/icu.git" + "@" + "8d342a405be5ae8aacb1e16f0bc31c3a4fbf26a2",
   "v8/buildtools":
-    Var("git_url") + "/chromium/buildtools.git" + "@" + "b73e5f70d7ac6be98fb2555461f631afc90216ce",
+    Var("git_url") + "/chromium/buildtools.git" + "@" + "68e3c238a5ab347436762cb929316aa55ca72563",
+  # TODO(fmeawad): this dependency is not currently used. Added to allow for developement of the V8 Tracing system.
+  "v8/base/trace_event/common":
+    Var("git_url") + "/chromium/src/base/trace_event/common.git" + "@" + "d83d44b13d07c2fd0a40101a7deef9b93b841732",
+  "v8/tools/swarming_client":
+    Var('git_url') + '/external/swarming.client.git' + '@' + "9cdd76171e517a430a72dcd7d66ade67e109aa00",
   "v8/testing/gtest":
-    Var("git_url") + "/external/googletest.git" + "@" + "be1868139ffe0ccd0e8e3b37292b84c821d9c8ad",
+    Var("git_url") + "/external/github.com/google/googletest.git" + "@" + "6f8a66431cb592dad629028a50b3dd418a408c87",
   "v8/testing/gmock":
-    Var("git_url") + "/external/googlemock.git" + "@" + "29763965ab52f24565299976b936d1265cb6a271",  # from svn revision 501
+    Var("git_url") + "/external/googlemock.git" + "@" + "0421b6f358139f02e102c9c332ce19a33faf75be",
+  "v8/test/benchmarks/data":
+    Var("git_url") + "/v8/deps/third_party/benchmarks.git" + "@" + "05d7188267b4560491ff9155c5ee13e207ecd65f",
+  "v8/test/mozilla/data":
+    Var("git_url") + "/v8/deps/third_party/mozilla-tests.git" + "@" + "f6c578a10ea707b1a8ab0b88943fe5115ce2b9be",
+  "v8/test/simdjs/data": Var("git_url") + "/external/github.com/tc39/ecmascript_simd.git" + "@" + "c8ef63c728283debc25891123eb00482fee4b8cd",
+  "v8/test/test262/data":
+    Var("git_url") + "/external/github.com/tc39/test262.git" + "@" + "fd44cd73dfbce0b515a2474b7cd505d6176a9eb5",
   "v8/tools/clang":
-    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "6e259b4afbbd784a775e47f37379e57f002bf0c2",
+    Var("git_url") + "/chromium/src/tools/clang.git" + "@" + "6261565695263bd878edd055e81ecc5e989711d6",
 }
 
 deps_os = {
   "android": {
     "v8/third_party/android_tools":
-      Var("git_url") + "/android_tools.git" + "@" + "4f723e2a5fa5b7b8a198072ac19b92344be2b271",
+      Var("git_url") + "/android_tools.git" + "@" + "54492f99c84cab0826a8e656efeb33a1b1bf5a04",
   },
   "win": {
     "v8/third_party/cygwin":
@@ -91,6 +103,46 @@ hooks = [
                 "-s", "v8/buildtools/linux64/clang-format.sha1",
     ],
   },
+  # Pull luci-go binaries (isolate, swarming) using checked-in hashes.
+  {
+    'name': 'luci-go_win',
+    'pattern': '.',
+    'action': [ 'download_from_google_storage',
+                '--no_resume',
+                '--platform=win32',
+                '--no_auth',
+                '--bucket', 'chromium-luci',
+                '-d', 'v8/tools/luci-go/win64',
+    ],
+  },
+  {
+    'name': 'luci-go_mac',
+    'pattern': '.',
+    'action': [ 'download_from_google_storage',
+                '--no_resume',
+                '--platform=darwin',
+                '--no_auth',
+                '--bucket', 'chromium-luci',
+                '-d', 'v8/tools/luci-go/mac64',
+    ],
+  },
+  {
+    'name': 'luci-go_linux',
+    'pattern': '.',
+    'action': [ 'download_from_google_storage',
+                '--no_resume',
+                '--platform=linux*',
+                '--no_auth',
+                '--bucket', 'chromium-luci',
+                '-d', 'v8/tools/luci-go/linux64',
+    ],
+  },
+  {
+    # Update the Windows toolchain if necessary.
+    'name': 'win_toolchain',
+    'pattern': '.',
+    'action': ['python', 'v8/build/vs_toolchain.py', 'update'],
+  },
   # Pull binutils for linux, enabled debug fission for faster linking /
   # debugging when used with clang on Ubuntu Precise.
   # https://code.google.com/p/chromium/issues/detail?id=352046
@@ -101,6 +153,13 @@ hooks = [
         'python',
         'v8/third_party/binutils/download.py',
     ],
+  },
+  {
+    # Pull gold plugin if needed or requested via GYP_DEFINES.
+    # Note: This must run before the clang update.
+    'name': 'gold_plugin',
+    'pattern': '.',
+    'action': ['python', 'v8/build/download_gold_plugin.py'],
   },
   {
     # Pull clang if needed or requested via GYP_DEFINES.

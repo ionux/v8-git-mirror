@@ -28,7 +28,6 @@
 {
   'variables': {
     'v8_code': 1,
-    'console%': '',
     # Enable support for Intel VTune. Supported on ia32/x64 only
     'v8_enable_vtunejit%': 0,
     'v8_enable_i18n_support%': 1,
@@ -48,17 +47,12 @@
         '..',
       ],
       'sources': [
+        'd8.h',
         'd8.cc',
-        'startup-data-util.h',
-        'startup-data-util.cc'
       ],
       'conditions': [
         [ 'want_separate_host_toolset==1', {
           'toolsets': [ '<(v8_toolset_for_d8)', ],
-        }],
-        [ 'console=="readline"', {
-          'libraries': [ '-lreadline', ],
-          'sources': [ 'd8-readline.cc' ],
         }],
         ['(OS=="linux" or OS=="mac" or OS=="freebsd" or OS=="netbsd" \
            or OS=="openbsd" or OS=="solaris" or OS=="android" \
@@ -69,7 +63,9 @@
           'sources': [ 'd8-windows.cc', ]
         }],
         [ 'component!="shared_library"', {
-          'sources': [ 'd8-debug.cc', '<(SHARED_INTERMEDIATE_DIR)/d8-js.cc', ],
+          'sources': [
+            '<(SHARED_INTERMEDIATE_DIR)/d8-js.cc',
+          ],
           'conditions': [
             [ 'want_separate_host_toolset==1', {
               'dependencies': [
@@ -79,6 +75,13 @@
               'dependencies': [
                 'd8_js2c',
               ],
+            }],
+            [ 'v8_postmortem_support=="true"', {
+              'xcode_settings': {
+                'OTHER_LDFLAGS': [
+                   '-Wl,-force_load,<(PRODUCT_DIR)/libv8_base.a'
+                ],
+              },
             }],
           ],
         }],
@@ -98,6 +101,9 @@
             '<(icu_gyp_path):icudata',
           ],
         }],
+        ['v8_wasm!=0', {
+          'include_dirs': ['../third_party/wasm'],
+        }],
       ],
     },
     {
@@ -106,7 +112,7 @@
       'variables': {
         'js_files': [
           'd8.js',
-          'macros.py',
+          'js/macros.py',
         ],
       },
       'conditions': [
@@ -135,6 +141,25 @@
           ],
         },
       ],
-    }
+    },
+  ],
+  'conditions': [
+    ['test_isolation_mode != "noop" and v8_toolset_for_d8 == "target"', {
+      'targets': [
+        {
+          'target_name': 'd8_run',
+          'type': 'none',
+          'dependencies': [
+            'd8',
+          ],
+          'includes': [
+            '../build/isolate.gypi',
+          ],
+          'sources': [
+            'd8.isolate',
+          ],
+        },
+      ],
+    }],
   ],
 }
